@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>センサーデータ収集ツール</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+        .controls, .actions { margin-bottom: 1rem; }
+        select, button { font-size: 1rem; padding: 0.5rem; }
+        textarea { width: 100%; height: 200px; font-family: monospace; }
+        button:disabled { background-color: #ccc; }
+    </style>
+</head>
+<body>
+    <h1>センサーデータ収集ツール</h1>
+    <div class="controls">
+        <label for="activity-label">動作ラベルを選択:</label>
+        <select id="activity-label">
+            <option value="Still">静止</option>
+            <option value="Walking">歩行</option>
+            <option value="Running">走行</option>
+            <option value="Stairs_Up">階段(上り)</option>
+            <option value="Stairs_Down">階段(下り)</option>
+        </select>
+    </div>
+    <div class="actions">
+        <button id="startButton">記録開始</button>
+        <button id="stopButton" disabled>記録停止 & ダウンロード</button>
+    </div>
+    <textarea id="log" readonly></textarea>
+
+    <script>
+        const activityLabelSelect = document.getElementById('activity-label');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const logArea = document.getElementById('log');
+
+        let sensorData = [];
+        let isRecording = false;
+
+        // 加速度センサーのイベントハンドラ
+        function handleMotion(event) {
+            if (!isRecording) return;
+            
+            const accel = event.accelerationIncludingGravity;
+            const now = Date.now();
+            
+            // データを配列に追加
+            const row = [now, accel.x, accel.y, accel.z].join(',');
+            sensorData.push(row);
+            
+            // 画面にも表示（最後の10件）
+            logArea.value = sensorData.slice(-10).join('\n');
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        // 記録開始ボタンの処理
+        startButton.addEventListener('click', () => {
+            // 既存のデータをクリア
+            sensorData = [];
+            logArea.value = '';
+            
+            // センサーを有効化
+            // iOSではユーザー操作を起点に許可を求める必要がある
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission().then(state => {
+                    if (state === 'granted') {
+                        window.addEventListener('devicemotion', handleMotion);
+                        isRecording = true;
+                        toggleButtons();
+                    } else {
+                        alert('センサーの利用が許可されませんでした。');
+                    }
+                }).catch(console.error);
+            } else {
+                // Androidなど許可が不要な場合
+                window.addEventListener('devicemotion', handleMotion);
+                isRecording = true;
+                toggleButtons();
+            }
+        });
+
+        // 記録停止＆ダウンロードボタンの処理
+        stopButton.addEventListener('click', () => {
+            isRecording = false;
+            window.removeEventListener('devicemotion', handleMotion);
+            toggleButtons();
+            
+            if (sensorData.length > 0) {
+                downloadCSV();
+            }
+        });
+
+        // CSVをダウンロードする関数
+        function downloadCSV() {
+            const label = activityLabelSelect.value;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `${label}_${timestamp}.csv`;
+
+            // ヘッダー行とデータ本体を結合
+            const header = 'timestamp,accel_x,accel_y,accel_z';
+            const csvContent = header + '\n' + sensorData.join('\n');
+
+            // ダウンロードリンクを動的に作成してクリック
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+
+        // ボタンの状態を切り替えるヘルパー関数
+        function toggleButtons() {
+            startButton.disabled = isRecording;
+            stopButton.disabled = !isRecording;
+        }
+    </script>
+</body>
+</html>
